@@ -53,7 +53,7 @@ Public GitHub repository
 
    CREATE API INTEGRATION IF NOT EXISTS WORLDTABLE_GITHUB_API
      API_PROVIDER = GIT_HTTPS_API
-     API_ALLOWED_PREFIXES = ('https://github.com/ezer-k/chat_to_table')
+     API_ALLOWED_PREFIXES = ('https://github.com')
      ENABLED = TRUE;
 
    CREATE GIT REPOSITORY IF NOT EXISTS WORLDTABLE.APP.SOURCE
