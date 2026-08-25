@@ -1,0 +1,18 @@
+definition_version: 2
+
+entities:
+  worldtable:
+    type: streamlit
+    identifier:
+      name: WORLDTABLE_APP
+      database: WORLDTABLE
+      schema: APP
+    title: WorldTable
+    query_warehouse: WORLDTABLE_WH
+    compute_pool: SYSTEM_COMPUTE_POOL_CPU
+    runtime_name: SYSTEM$ST_CONTAINER_RUNTIME_PY3_11
+    main_file: streamlit_app.py
+    artifacts:
+      - streamlit_app.py
+      - requirements.txt
+

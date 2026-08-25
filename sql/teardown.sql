@@ -1,0 +1,5 @@
+-- Destructive: removes every object created by WorldTable.
+USE ROLE ACCOUNTADMIN;
+DROP DATABASE IF EXISTS WORLDTABLE;
+DROP WAREHOUSE IF EXISTS WORLDTABLE_WH;
+
