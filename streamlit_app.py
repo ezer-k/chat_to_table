@@ -140,7 +140,7 @@ if dataset:
     st.subheader(dataset["title"])
     st.write(dataset["definition"])
     frame = dataframe_for(dataset)
-    st.dataframe(frame, use_container_width=True, hide_index=True)
+    st.dataframe(frame, width="stretch", hide_index=True)
     st.download_button(
         "Download CSV",
         frame.to_csv(index=False).encode("utf-8"),
@@ -165,4 +165,3 @@ if dataset:
                 st.code(f"SELECT * FROM {saved};", language="sql")
             except Exception as exc:
                 st.error(f"Save failed: {exc}")
-
