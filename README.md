@@ -8,16 +8,18 @@ WorldTable is a Snowflake-native research application. Ask for real-world inform
 - Cortex Agent web search
 - Structured, typed tabular output
 - Row-level source URLs
-- Interactive table preview
-- CSV download
+- Interactive table preview and CSV download
 - Persistent Snowflake result tables and evidence records
 - Container-runtime Streamlit interface
+- Snowflake-native Git installation and updates
 
 ## Architecture
 
 ```text
-Streamlit in Snowflake
-  -> SNOWFLAKE.CORTEX.DATA_AGENT_RUN
+Public GitHub repository
+  -> Snowflake Git repository clone
+  -> Git-hosted idempotent installer
+  -> container-runtime Streamlit
   -> Cortex Agent + built-in web search
   -> validated JSON dataset
   -> interactive dataframe
@@ -28,98 +30,120 @@ Streamlit in Snowflake
 
 - A Snowflake account in a region supporting Cortex Agents and container-runtime Streamlit
 - `ACCOUNTADMIN` for initial setup
-- Snowflake CLI 3.14 or newer
-- Git and Python 3.11+
 - Available Snowflake credits
+- Account-level Cortex Agent web search enabled
 
-## Deploy from scratch
+## Install from scratch: one worksheet
 
-1. Clone this repository.
+1. Sign in to Snowsight and open a new SQL worksheet.
 
-   ```bash
-   git clone <repository-url>
-   cd worldtable
-   ```
+2. Enable account-level web search under:
 
-2. Install Snowflake CLI.
-
-   ```bash
-   python -m pip install "snowflake-cli>=3.14"
-   snow --version
-   ```
-
-3. Configure a Snowflake CLI connection. Do not commit credentials.
-
-   ```bash
-   snow connection add
-   snow connection test
-   ```
-
-4. In Snowsight, enable account-level web search:
-
-   `AI & ML` → `Agents` → `Settings` → `Enable web search`
+   `AI & ML` -> `Agents` -> `Settings` -> `Enable web search`
 
    Snowflake sends generated search queries to its web-search provider. Review the notice shown by Snowflake before enabling it.
 
-5. Run the idempotent bootstrap script as `ACCOUNTADMIN`.
+3. Paste and run this installer:
 
-   ```bash
-   snow sql -f sql/bootstrap.sql
+   ```sql
+   USE ROLE ACCOUNTADMIN;
+
+   CREATE DATABASE IF NOT EXISTS WORLDTABLE;
+   CREATE SCHEMA IF NOT EXISTS WORLDTABLE.APP;
+
+   CREATE API INTEGRATION IF NOT EXISTS WORLDTABLE_GITHUB_API
+     API_PROVIDER = GIT_HTTPS_API
+     API_ALLOWED_PREFIXES = ('https://github.com/ezer-k/chat_to_table')
+     ENABLED = TRUE;
+
+   CREATE GIT REPOSITORY IF NOT EXISTS WORLDTABLE.APP.SOURCE
+     API_INTEGRATION = WORLDTABLE_GITHUB_API
+     ORIGIN = 'https://github.com/ezer-k/chat_to_table.git';
+
+   ALTER GIT REPOSITORY WORLDTABLE.APP.SOURCE FETCH;
+
+   EXECUTE IMMEDIATE FROM
+     @WORLDTABLE.APP.SOURCE/branches/main/sql/install.sql;
    ```
 
-6. Deploy the container-runtime Streamlit app.
+   The same bootstrap is stored in [`sql/setup_git.sql`](sql/setup_git.sql).
 
-   ```bash
-   snow streamlit deploy worldtable --replace --open
-   ```
+4. Open `Projects` -> `Streamlit` -> `WorldTable`.
 
-7. Ask a bounded test question, such as:
+5. Ask a bounded test question, for example:
 
    ```text
    List the 15 largest passenger-car manufacturers worldwide with headquarters
    country, parent company, and latest reported annual production. Cite every row.
    ```
 
-8. Review the result and select **Save as Snowflake table**. Query it with:
+6. Review the result and select **Save as Snowflake table**. Query saved results with:
 
    ```sql
    SHOW TABLES IN SCHEMA WORLDTABLE.RESULTS;
    SELECT * FROM WORLDTABLE.RESULTS.<TABLE_NAME>;
    ```
 
+## Update from GitHub
+
+After changes are merged into `main`, run:
+
+```sql
+EXECUTE IMMEDIATE FROM
+  @WORLDTABLE.APP.SOURCE/branches/main/sql/update.sql;
+```
+
+The update fetches the latest branch and redeploys the agent and Streamlit app. Saved datasets and evidence tables are preserved.
+
+## Optional Snowflake CLI workflow
+
+Snowflake-native Git is the primary installation path. Contributors who prefer the CLI can clone the repository, configure a Snowflake connection, and run the same scripts:
+
+```bash
+git clone https://github.com/ezer-k/chat_to_table.git
+cd chat_to_table
+snow connection add
+snow connection test
+snow sql -f sql/setup_git.sql
+```
+
 ## Cost controls
 
 - The query warehouse is X-Small and suspends after 60 seconds.
 - The agent is limited to 180 seconds and 24,000 orchestration tokens per request.
 - The UI enforces a maximum of 100 rows.
-- Suspend the Streamlit compute pool or undeploy the app when it is not being demonstrated.
+- Suspend the Streamlit compute pool or drop the app when it is not being demonstrated.
 - Monitor `SNOWFLAKE.ACCOUNT_USAGE.CORTEX_AGENT_USAGE_HISTORY` and warehouse metering.
 
 ## Reproducing on another account
 
-All durable project state is represented by:
+All durable project state is version controlled:
 
-- `sql/bootstrap.sql`: databases, schemas, warehouse, tables, grants, and agent specification
-- `snowflake.yml`: Streamlit runtime, compute pool, warehouse, and artifacts
-- `requirements.txt`: Python dependencies
+- `sql/setup_git.sql`: initial public GitHub connection
+- `sql/install.sql`: database objects, grants, agent, and Streamlit deployment
+- `sql/update.sql`: fetch and redeploy procedure
 - `streamlit_app.py`: complete application
+- `requirements.txt`: container dependencies
+- `snowflake.yml`: optional CLI project definition
 - `sql/teardown.sql`: removal procedure
 
-The only intentional manual account-level action is enabling Cortex Agent web search. This setting cannot safely be assumed by an install script because it controls transmission of search queries outside Snowflake.
+The only intentional manual account-level action is enabling Cortex Agent web search. This setting controls transmission of search queries outside Snowflake and should not be silently enabled by an installer.
 
 ## Teardown
 
-The following permanently removes WorldTable data and compute objects:
+The following permanently removes WorldTable data, application objects, warehouse, Git clone, and Git API integration:
 
-```bash
-snow sql -f sql/teardown.sql
+```sql
+EXECUTE IMMEDIATE FROM
+  @WORLDTABLE.APP.SOURCE/branches/main/sql/teardown.sql;
 ```
+
+Because the teardown drops the Git repository along with the database, run it only once. The same file can also be copied from GitHub into a worksheet if the repository object is unavailable.
 
 ## Known MVP limitations
 
 - Research quality depends on source availability and Cortex Agent behavior.
 - JSON conformance may occasionally fail; the UI reports the error rather than saving malformed data.
-- Citations are currently recorded at row level, not individual-cell level.
+- Citations are recorded at row level, not individual-cell level.
 - Saving a second dataset with the same generated title can collide with an existing table name.
 - The synchronous SQL wrapper does not stream intermediate research progress.
-
